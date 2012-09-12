@@ -15,6 +15,7 @@
  */
 
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -54,6 +55,7 @@
 void add_environment(const char *name, const char *value);
 
 extern int init_module(void *, unsigned long, const char *);
+extern int init_export_rc_file(const char *);
 
 static int write_file(const char *path, const char *value)
 {
@@ -221,6 +223,23 @@ int do_class_reset(int nargs, char **args)
     return 0;
 }
 
+int do_export_rc(int nargs, char **args)
+{
+        /* Import environments from a specified file.
+         * The file content is of the form:
+         *     export <env name> <value>
+         * e.g.
+         *     export LD_PRELOAD /system/lib/xyz.so
+         *     export PROMPT abcde
+         * Differences between "import" and "export_rc":
+         * 1) export_rc can only import environment vars
+         * 2) export_rc is performed when the command
+         *    is executed rather than at the time the
+         *    command is parsed (i.e. "import")
+         */
+    return init_export_rc_file(args[1]);
+}
+
 int do_domainname(int nargs, char **args)
 {
     return write_file("/proc/sys/kernel/domainname", args[1]);
@@ -233,12 +252,32 @@ int do_exec(int nargs, char **args)
     pid_t pid;
     int status, i, j;
     char *par[MAX_PARAMETERS];
+    char prop_val[PROP_VALUE_MAX];
+    int len;
+
     if (nargs > MAX_PARAMETERS)
     {
         return -1;
     }
     for(i=0, j=1; i<(nargs-1) ;i++,j++)
     {
+        if ((args[j])
+            &&
+            (!expand_props(prop_val, args[j], sizeof(prop_val))))
+
+        {
+            len = strlen(args[j]);
+            if (strlen(prop_val) <= len) {
+                /* Overwrite arg with expansion.
+                 *
+                 * For now, only allow an expansion length that
+                 * can fit within the original arg length to
+                 * avoid extra allocations.
+                 * On failure, use original argument.
+                 */
+                strncpy(args[j], prop_val, len + 1);
+            }
+        }
         par[i] = args[j];
     }
     par[i] = (char*)0;
